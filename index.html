@@ -204,21 +204,40 @@
             document.getElementById('btn-iniciar-camara').classList.add('hidden');
             document.getElementById('btn-detener-camara').classList.remove('hidden');
             
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.clear();
+            }
+            
             html5QrcodeScanner = new Html5Qrcode("reader");
             
-            html5QrcodeScanner.start(
-                { facingMode: "environment" },
-                {
-                    fps: 10,
-                    qrbox: { width: 250, height: 250 }
-                },
-                (decodedText) => {
-                    idEscaneado = decodedText.padStart(3, '0');
-                    detenerEscaneo();
-                    abrirWhatsApp(idEscaneado);
+            Html5Qrcode.getCameras().then(cameras => {
+                if (cameras && cameras.length) {
+                    const cameraId = cameras[cameras.length - 1].id;
+                    
+                    html5QrcodeScanner.start(
+                        cameraId,
+                        {
+                            fps: 10,
+                            qrbox: { width: 250, height: 250 }
+                        },
+                        (decodedText) => {
+                            idEscaneado = decodedText.padStart(3, '0');
+                            detenerEscaneo();
+                            abrirWhatsApp(idEscaneado);
+                        },
+                        (errorMessage) => {
+                            // Errores de escaneo continuo (ignorar)
+                        }
+                    ).catch(err => {
+                        console.error('Error al iniciar cámara:', err);
+                        alert('Error al acceder a la cámara: ' + err);
+                        document.getElementById('btn-iniciar-camara').classList.remove('hidden');
+                        document.getElementById('btn-detener-camara').classList.add('hidden');
+                    });
                 }
-            ).catch(err => {
-                alert('Error al acceder a la cámara: ' + err);
+            }).catch(err => {
+                console.error('Error al obtener cámaras:', err);
+                alert('No se puede acceder a la cámara. Verifica los permisos.');
                 document.getElementById('btn-iniciar-camara').classList.remove('hidden');
                 document.getElementById('btn-detener-camara').classList.add('hidden');
             });
