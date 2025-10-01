@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestión de Paquetes</title>
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -12,9 +12,14 @@
         body {
             padding-bottom: 80px;
         }
-        #reader {
+        #video {
+            width: 100%;
             max-width: 500px;
-            margin: 0 auto;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+        }
+        canvas {
+            display: none;
         }
         .nav-button {
             transition: all 0.3s;
@@ -63,13 +68,17 @@
         
         <div class="bg-white rounded-lg shadow-md p-6">
             <h2 class="text-xl font-bold mb-4 text-gray-800">Escanear Etiqueta</h2>
-            <div id="reader" class="mb-4"></div>
+            <div class="mb-4 text-center">
+                <video id="video" autoplay playsinline></video>
+                <canvas id="canvas"></canvas>
+            </div>
             <button id="btn-iniciar-camara" onclick="iniciarEscaneo()" class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-bold hover:bg-blue-700">
                 Iniciar Cámara
             </button>
             <button id="btn-detener-camara" onclick="detenerEscaneo()" class="hidden w-full bg-red-600 text-white py-3 px-6 rounded-lg font-bold hover:bg-red-700">
                 Detener Cámara
             </button>
+            <div id="status" class="mt-4 text-center text-gray-600"></div>
         </div>
     </div>
 
@@ -151,38 +160,39 @@
         // ========================================
         // CONFIGURACIÓN DE FIREBASE
         // ========================================
-        // ⚠️ IMPORTANTE: Reemplaza estos valores con tu configuración de Firebase
         const firebaseConfig = {
-            apiKey: "AIzaSyDuY9ZILDYm3bNUz-QOmJzLqiqEM0nXt5U",
-  authDomain: "qrapp-44928.firebaseapp.com",
-  databaseURL: "https://qrapp-44928-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "qrapp-44928",
-  storageBucket: "qrapp-44928.firebasestorage.app",
-  messagingSenderId: "514907752423",
-  appId: "1:514907752423:web:2d59e69accf5bdd8b01f42",
-  measurementId: "G-F372EM60EV"
+            apiKey: "TU_API_KEY_AQUI",
+            authDomain: "TU_PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://TU_PROJECT_ID-default-rtdb.firebaseio.com",
+            projectId: "TU_PROJECT_ID",
+            storageBucket: "TU_PROJECT_ID.appspot.com",
+            messagingSenderId: "TU_MESSAGING_SENDER_ID",
+            appId: "TU_APP_ID"
         };
 
-        // Inicializar Firebase
         let db;
         try {
             firebase.initializeApp(firebaseConfig);
             db = firebase.database();
-            console.log('Firebase inicializado correctamente');
+            console.log('Firebase inicializado');
         } catch (error) {
-            console.error('Error al inicializar Firebase:', error);
-            alert('Error de configuración. Por favor, configura Firebase correctamente.');
+            console.error('Error Firebase:', error);
+            alert('Error de configuración Firebase');
         }
 
         // ========================================
         // VARIABLES GLOBALES
         // ========================================
-        let html5QrcodeScanner = null;
+        let stream = null;
+        let scanning = false;
         let idEscaneado = null;
         let filtroActual = 'todos';
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
 
         // ========================================
-        // NAVEGACIÓN ENTRE PANTALLAS
+        // NAVEGACIÓN
         // ========================================
         function mostrarPantalla(pantalla) {
             document.querySelectorAll('[id^="pantalla-"]').forEach(el => el.classList.add('hidden'));
@@ -194,70 +204,82 @@
                 cargarPaquetesPendientes();
             } else if (pantalla === 'historial') {
                 cargarHistorial();
+            } else if (pantalla !== 'escanear') {
+                detenerEscaneo();
             }
         }
 
         // ========================================
-        // ESCANEO DE QR
+        // ESCANEO DE QR CON jsQR
         // ========================================
         function iniciarEscaneo() {
             document.getElementById('btn-iniciar-camara').classList.add('hidden');
             document.getElementById('btn-detener-camara').classList.remove('hidden');
+            document.getElementById('status').textContent = 'Iniciando cámara...';
             
-            if (html5QrcodeScanner) {
-                html5QrcodeScanner.clear();
-            }
-            
-            html5QrcodeScanner = new Html5Qrcode("reader");
-            
-            Html5Qrcode.getCameras().then(cameras => {
-                if (cameras && cameras.length) {
-                    const cameraId = cameras[cameras.length - 1].id;
-                    
-                    html5QrcodeScanner.start(
-                        cameraId,
-                        {
-                            fps: 10,
-                            qrbox: { width: 250, height: 250 }
-                        },
-                        (decodedText) => {
-                            idEscaneado = decodedText.padStart(3, '0');
-                            detenerEscaneo();
-                            abrirWhatsApp(idEscaneado);
-                        },
-                        (errorMessage) => {
-                            // Errores de escaneo continuo (ignorar)
-                        }
-                    ).catch(err => {
-                        console.error('Error al iniciar cámara:', err);
-                        alert('Error al acceder a la cámara: ' + err);
-                        document.getElementById('btn-iniciar-camara').classList.remove('hidden');
-                        document.getElementById('btn-detener-camara').classList.add('hidden');
-                    });
-                }
-            }).catch(err => {
-                console.error('Error al obtener cámaras:', err);
-                alert('No se puede acceder a la cámara. Verifica los permisos.');
+            navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment" } 
+            })
+            .then(function(mediaStream) {
+                stream = mediaStream;
+                video.srcObject = stream;
+                video.setAttribute('playsinline', true);
+                video.play();
+                scanning = true;
+                document.getElementById('status').textContent = 'Apunta al código QR';
+                requestAnimationFrame(tick);
+            })
+            .catch(function(err) {
+                console.error('Error al acceder a cámara:', err);
+                alert('No se puede acceder a la cámara: ' + err.message);
                 document.getElementById('btn-iniciar-camara').classList.remove('hidden');
                 document.getElementById('btn-detener-camara').classList.add('hidden');
+                document.getElementById('status').textContent = 'Error: ' + err.message;
             });
         }
 
-        function detenerEscaneo() {
-            if (html5QrcodeScanner) {
-                html5QrcodeScanner.stop().then(() => {
-                    html5QrcodeScanner = null;
-                    document.getElementById('btn-iniciar-camara').classList.remove('hidden');
-                    document.getElementById('btn-detener-camara').classList.add('hidden');
-                }).catch(err => console.error(err));
+        function tick() {
+            if (!scanning) return;
+            
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                canvas.height = video.videoHeight;
+                canvas.width = video.videoWidth;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                });
+                
+                if (code) {
+                    idEscaneado = code.data.padStart(3, '0');
+                    document.getElementById('status').textContent = '¡QR detectado! ID: ' + idEscaneado;
+                    detenerEscaneo();
+                    abrirWhatsApp(idEscaneado);
+                    return;
+                }
             }
+            
+            requestAnimationFrame(tick);
+        }
+
+        function detenerEscaneo() {
+            scanning = false;
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            video.srcObject = null;
+            document.getElementById('btn-iniciar-camara').classList.remove('hidden');
+            document.getElementById('btn-detener-camara').classList.add('hidden');
+            document.getElementById('status').textContent = '';
         }
 
         function abrirWhatsApp(id) {
             const mensaje = `Hola, tienes un paquete con el número ${id}`;
-            const urlWhatsApp = `whatsapp://send?text=${encodeURIComponent(mensaje)}`;
+            const urlWhatsApp = `https://wa.me/?text=${encodeURIComponent(mensaje)}`;
             
-            window.location.href = urlWhatsApp;
+            window.open(urlWhatsApp, '_blank');
             
             setTimeout(() => {
                 document.getElementById('id-confirmacion').textContent = id;
@@ -272,7 +294,7 @@
         }
 
         // ========================================
-        // GUARDAR PAQUETE EN FIREBASE
+        // FIREBASE
         // ========================================
         function confirmarEnvio() {
             if (!idEscaneado) return;
@@ -290,19 +312,16 @@
             
             db.ref('paquetes/' + idEscaneado).set(paquete)
                 .then(() => {
-                    alert('✓ Paquete registrado correctamente');
+                    alert('✓ Paquete registrado');
                     document.getElementById('input-contacto').value = '';
                     idEscaneado = null;
                     mostrarPantalla('menu');
                 })
                 .catch(error => {
-                    alert('Error al guardar: ' + error.message);
+                    alert('Error: ' + error.message);
                 });
         }
 
-        // ========================================
-        // CARGAR PAQUETES PENDIENTES
-        // ========================================
         function cargarPaquetesPendientes() {
             db.ref('paquetes').orderByChild('estado').equalTo('Pendiente').once('value')
                 .then(snapshot => {
@@ -321,20 +340,15 @@
                 });
         }
 
-        // ========================================
-        // MARCAR COMO RECOGIDO
-        // ========================================
         function marcarRecogido(id) {
-            if (!confirm(`¿Marcar el paquete ${id} como recogido?`)) return;
-            
-            const ahora = new Date();
+            if (!confirm(`¿Marcar paquete ${id} como recogido?`)) return;
             
             db.ref('paquetes/' + id).update({
                 estado: 'Recogido',
-                fechaRecogida: ahora.toISOString()
+                fechaRecogida: new Date().toISOString()
             })
                 .then(() => {
-                    alert('✓ Paquete marcado como recogido');
+                    alert('✓ Marcado como recogido');
                     cargarPaquetesPendientes();
                     actualizarContadorPendientes();
                 })
@@ -343,9 +357,6 @@
                 });
         }
 
-        // ========================================
-        // HISTORIAL COMPLETO
-        // ========================================
         function cargarHistorial() {
             db.ref('paquetes').once('value')
                 .then(snapshot => {
@@ -353,7 +364,7 @@
                     lista.innerHTML = '';
                     
                     if (!snapshot.exists()) {
-                        lista.innerHTML = '<div class="bg-white rounded-lg shadow-md p-6 text-center text-gray-500">No hay paquetes registrados</div>';
+                        lista.innerHTML = '<div class="bg-white rounded-lg shadow-md p-6 text-center text-gray-500">No hay paquetes</div>';
                         return;
                     }
                     
@@ -390,14 +401,11 @@
             cargarHistorial();
         }
 
-        // ========================================
-        // BUSCAR PAQUETE
-        // ========================================
         function buscarPaquete() {
             const id = document.getElementById('input-buscar').value.trim().padStart(3, '0');
             
             if (!id) {
-                alert('Por favor, ingresa un ID');
+                alert('Ingresa un ID');
                 return;
             }
             
@@ -406,7 +414,7 @@
                     const resultado = document.getElementById('resultado-busqueda');
                     
                     if (!snapshot.exists()) {
-                        resultado.innerHTML = '<div class="bg-red-100 border-l-4 border-red-500 p-4 rounded"><p class="text-red-700 font-bold">No se encontró ningún paquete con el ID: ' + id + '</p></div>';
+                        resultado.innerHTML = '<div class="bg-red-100 border-l-4 border-red-500 p-4 rounded"><p class="text-red-700 font-bold">No encontrado: ' + id + '</p></div>';
                         return;
                     }
                     
@@ -415,9 +423,6 @@
                 });
         }
 
-        // ========================================
-        // CREAR TARJETA DE PAQUETE
-        // ========================================
         function crearTarjetaPaquete(paquete, mostrarBoton) {
             const fecha = new Date(paquete.fechaNotificacion);
             const fechaFormateada = fecha.toLocaleDateString('es-ES') + ' ' + fecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
@@ -429,7 +434,7 @@
             }
             
             const estadoColor = paquete.estado === 'Pendiente' ? 'bg-orange-100 border-orange-500 text-orange-700' : 'bg-green-100 border-green-500 text-green-700';
-            const boton = mostrarBoton ? `<button onclick="marcarRecogido('${paquete.id}')" class="w-full bg-green-600 text-white py-2 px-4 rounded font-bold hover:bg-green-700 mt-3">✓ Marcar como Recogido</button>` : '';
+            const boton = mostrarBoton ? `<button onclick="marcarRecogido('${paquete.id}')" class="w-full bg-green-600 text-white py-2 px-4 rounded font-bold hover:bg-green-700 mt-3">✓ Marcar Recogido</button>` : '';
             
             return `
                 <div class="bg-white rounded-lg shadow-md p-4 mb-3">
@@ -438,20 +443,23 @@
                         <span class="${estadoColor} px-3 py-1 rounded-full text-xs font-bold border-l-4">${paquete.estado}</span>
                     </div>
                     <p class="text-gray-700 font-semibold mb-1">👤 ${paquete.contacto}</p>
-                    <p class="text-sm text-gray-600">📅 Notificado: ${fechaFormateada}</p>
+                    <p class="text-sm text-gray-600">📅 ${fechaFormateada}</p>
                     ${fechaRecogida}
                     ${boton}
                 </div>
             `;
         }
 
-        // ========================================
-        // ACTUALIZAR CONTADOR DE PENDIENTES
-        // ========================================
         function actualizarContadorPendientes() {
             db.ref('paquetes').orderByChild('estado').equalTo('Pendiente').once('value')
                 .then(snapshot => {
-                    const count = snapshot.numChildren();
-                    document.getElementById('num-pendientes').textContent = count;
+                    document.getElementById('num-pendientes').textContent = snapshot.numChildren();
                 });
         }
+
+        window.onload = function() {
+            actualizarContadorPendientes();
+        };
+    </script>
+</body>
+</html>
