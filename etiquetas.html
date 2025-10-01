@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador de Etiquetas QR</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        @media print {
+            body {
+                margin: 0;
+                padding: 10mm;
+            }
+            .no-print {
+                display: none;
+            }
+            .page-break {
+                page-break-after: always;
+            }
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .controls {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .controls h1 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .controls label {
+            display: block;
+            margin: 10px 0 5px;
+            font-weight: bold;
+        }
+
+        .controls input {
+            width: 100px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        .controls button {
+            margin-top: 15px;
+            padding: 12px 24px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .controls button:hover {
+            background: #45a049;
+        }
+
+        #etiquetas-container {
+            background: white;
+            padding: 10mm;
+        }
+
+        .etiquetas-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 5mm;
+            width: 190mm;
+            margin: 0 auto;
+        }
+
+        .etiqueta {
+            border: 1px dashed #ccc;
+            padding: 8px;
+            text-align: center;
+            background: white;
+            height: 90mm;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .etiqueta .qr-code {
+            margin-bottom: 8px;
+        }
+
+        .etiqueta .numero {
+            font-size: 32px;
+            font-weight: bold;
+            color: #333;
+            font-family: 'Courier New', monospace;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls no-print">
+        <h1>🏷️ Generador de Etiquetas QR</h1>
+        <p style="margin-bottom: 20px; color: #666;">
+            Genera etiquetas con códigos QR para identificar paquetes. Cada etiqueta incluye un código QR y su número ID.
+        </p>
+        
+        <label for="desde">Desde (número):</label>
+        <input type="number" id="desde" value="1" min="1" max="999">
+        
+        <label for="hasta">Hasta (número):</label>
+        <input type="number" id="hasta" value="50" min="1" max="999">
+        
+        <button onclick="generarEtiquetas()">Generar Etiquetas</button>
+        <button onclick="window.print()" style="background: #2196F3; margin-left: 10px;">Imprimir</button>
+        
+        <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 4px; border-left: 4px solid #ffc107;">
+            <strong>💡 Instrucciones:</strong>
+            <ol style="margin-left: 20px; margin-top: 10px; line-height: 1.8;">
+                <li>Selecciona el rango de números para las etiquetas</li>
+                <li>Haz clic en "Generar Etiquetas"</li>
+                <li>Espera a que se generen todos los códigos QR</li>
+                <li>Haz clic en "Imprimir" para imprimir las etiquetas</li>
+                <li>Usa papel adhesivo formato A4 (recomendado: etiquetas de 70x90mm)</li>
+            </ol>
+        </div>
+    </div>
+
+    <div id="etiquetas-container">
+        <div class="loading">
+            Configura el rango y haz clic en "Generar Etiquetas"
+        </div>
+    </div>
+
+    <script>
+        function generarEtiquetas() {
+            const desde = parseInt(document.getElementById('desde').value);
+            const hasta = parseInt(document.getElementById('hasta').value);
+            
+            if (desde > hasta) {
+                alert('El número "Desde" debe ser menor o igual que "Hasta"');
+                return;
+            }
+            
+            if (hasta - desde > 500) {
+                if (!confirm('Vas a generar más de 500 etiquetas. Esto puede tardar un poco. ¿Continuar?')) {
+                    return;
+                }
+            }
+            
+            const container = document.getElementById('etiquetas-container');
+            container.innerHTML = '<div class="loading">Generando etiquetas... Por favor espera.</div>';
+            
+            setTimeout(() => {
+                container.innerHTML = '';
+                
+                let etiquetasPorPagina = 0;
+                let gridActual = null;
+                
+                for (let i = desde; i <= hasta; i++) {
+                    if (etiquetasPorPagina === 0) {
+                        if (gridActual) {
+                            const pageBreak = document.createElement('div');
+                            pageBreak.className = 'page-break';
+                            container.appendChild(pageBreak);
+                        }
+                        gridActual = document.createElement('div');
+                        gridActual.className = 'etiquetas-grid';
+                        container.appendChild(gridActual);
+                    }
+                    
+                    const etiqueta = document.createElement('div');
+                    etiqueta.className = 'etiqueta';
+                    
+                    const qrDiv = document.createElement('div');
+                    qrDiv.className = 'qr-code';
+                    
+                    const numeroDiv = document.createElement('div');
+                    numeroDiv.className = 'numero';
+                    numeroDiv.textContent = String(i).padStart(3, '0');
+                    
+                    etiqueta.appendChild(qrDiv);
+                    etiqueta.appendChild(numeroDiv);
+                    gridActual.appendChild(etiqueta);
+                    
+                    new QRCode(qrDiv, {
+                        text: String(i).padStart(3, '0'),
+                        width: 150,
+                        height: 150,
+                        colorDark: "#000000",
+                        colorLight: "#ffffff",
+                        correctLevel: QRCode.CorrectLevel.M
+                    });
+                    
+                    etiquetasPorPagina++;
+                    if (etiquetasPorPagina >= 9) {
+                        etiquetasPorPagina = 0;
+                    }
+                }
+                
+                alert('¡Etiquetas generadas! Ahora puedes hacer clic en "Imprimir"');
+            }, 100);
+        }
+    </script>
+</body>
+</html>

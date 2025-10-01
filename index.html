@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestión de Paquetes</title>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            padding-bottom: 80px;
+        }
+        #reader {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        .nav-button {
+            transition: all 0.3s;
+        }
+        .nav-button:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    
+    <!-- Header -->
+    <div class="bg-blue-600 text-white p-4 shadow-lg">
+        <h1 class="text-2xl font-bold text-center">📦 Gestión de Paquetes</h1>
+    </div>
+
+    <!-- Pantalla: Menú Principal -->
+    <div id="pantalla-menu" class="container mx-auto p-4 max-w-md">
+        <div class="bg-white rounded-lg shadow-md p-6 mb-4">
+            <h2 class="text-xl font-bold mb-4 text-gray-800">Panel Principal</h2>
+            <div id="contador-pendientes" class="bg-orange-100 border-l-4 border-orange-500 p-4 mb-4 rounded">
+                <p class="font-bold text-orange-700">Paquetes pendientes: <span id="num-pendientes">0</span></p>
+            </div>
+        </div>
+
+        <button onclick="mostrarPantalla('escanear')" class="w-full bg-blue-600 text-white py-4 px-6 rounded-lg mb-3 font-bold text-lg nav-button hover:bg-blue-700">
+            📷 Escanear Nuevo Paquete
+        </button>
+
+        <button onclick="mostrarPantalla('pendientes')" class="w-full bg-green-600 text-white py-4 px-6 rounded-lg mb-3 font-bold text-lg nav-button hover:bg-green-700">
+            📋 Ver Paquetes Pendientes
+        </button>
+
+        <button onclick="mostrarPantalla('historial')" class="w-full bg-gray-600 text-white py-4 px-6 rounded-lg mb-3 font-bold text-lg nav-button hover:bg-gray-700">
+            📚 Historial Completo
+        </button>
+
+        <button onclick="mostrarPantalla('buscar')" class="w-full bg-purple-600 text-white py-4 px-6 rounded-lg font-bold text-lg nav-button hover:bg-purple-700">
+            🔍 Buscar por ID
+        </button>
+    </div>
+
+    <!-- Pantalla: Escanear QR -->
+    <div id="pantalla-escanear" class="hidden container mx-auto p-4 max-w-md">
+        <button onclick="mostrarPantalla('menu')" class="mb-4 text-blue-600 font-bold">← Volver</button>
+        
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-bold mb-4 text-gray-800">Escanear Etiqueta</h2>
+            <div id="reader" class="mb-4"></div>
+            <button id="btn-iniciar-camara" onclick="iniciarEscaneo()" class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-bold hover:bg-blue-700">
+                Iniciar Cámara
+            </button>
+            <button id="btn-detener-camara" onclick="detenerEscaneo()" class="hidden w-full bg-red-600 text-white py-3 px-6 rounded-lg font-bold hover:bg-red-700">
+                Detener Cámara
+            </button>
+        </div>
+    </div>
+
+    <!-- Pantalla: Confirmación -->
+    <div id="pantalla-confirmacion" class="hidden container mx-auto p-4 max-w-md">
+        <button onclick="cancelarConfirmacion()" class="mb-4 text-blue-600 font-bold">← Volver</button>
+        
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-bold mb-4 text-gray-800">Confirmar Envío</h2>
+            
+            <div class="bg-green-100 border-l-4 border-green-500 p-4 mb-4 rounded">
+                <p class="font-bold text-green-700">Paquete ID: <span id="id-confirmacion" class="text-2xl">000</span></p>
+            </div>
+
+            <p class="text-gray-700 mb-4">¿Has enviado el mensaje de WhatsApp correctamente?</p>
+
+            <label class="block text-gray-700 font-bold mb-2">Nombre del contacto (opcional):</label>
+            <input type="text" id="input-contacto" placeholder="Ej: Juan Pérez" class="w-full p-3 border border-gray-300 rounded-lg mb-4">
+
+            <button onclick="confirmarEnvio()" class="w-full bg-green-600 text-white py-3 px-6 rounded-lg font-bold hover:bg-green-700">
+                ✓ Confirmar y Guardar
+            </button>
+        </div>
+    </div>
+
+    <!-- Pantalla: Paquetes Pendientes -->
+    <div id="pantalla-pendientes" class="hidden container mx-auto p-4 max-w-md">
+        <button onclick="mostrarPantalla('menu')" class="mb-4 text-blue-600 font-bold">← Volver</button>
+        
+        <div class="bg-white rounded-lg shadow-md p-6 mb-4">
+            <h2 class="text-xl font-bold mb-2 text-gray-800">Paquetes Pendientes</h2>
+            <p class="text-gray-600 text-sm">Paquetes que aún no han sido recogidos</p>
+        </div>
+
+        <div id="lista-pendientes"></div>
+    </div>
+
+    <!-- Pantalla: Historial -->
+    <div id="pantalla-historial" class="hidden container mx-auto p-4 max-w-md">
+        <button onclick="mostrarPantalla('menu')" class="mb-4 text-blue-600 font-bold">← Volver</button>
+        
+        <div class="bg-white rounded-lg shadow-md p-6 mb-4">
+            <h2 class="text-xl font-bold mb-2 text-gray-800">Historial Completo</h2>
+            <div class="flex gap-2 mt-4">
+                <button onclick="filtrarHistorial('todos')" class="flex-1 bg-gray-200 text-gray-800 py-2 px-4 rounded font-bold hover:bg-gray-300" id="btn-todos">
+                    Todos
+                </button>
+                <button onclick="filtrarHistorial('pendientes')" class="flex-1 bg-gray-200 text-gray-800 py-2 px-4 rounded font-bold hover:bg-gray-300" id="btn-pendientes-filtro">
+                    Pendientes
+                </button>
+                <button onclick="filtrarHistorial('recogidos')" class="flex-1 bg-gray-200 text-gray-800 py-2 px-4 rounded font-bold hover:bg-gray-300" id="btn-recogidos-filtro">
+                    Recogidos
+                </button>
+            </div>
+        </div>
+
+        <div id="lista-historial"></div>
+    </div>
+
+    <!-- Pantalla: Buscar -->
+    <div id="pantalla-buscar" class="hidden container mx-auto p-4 max-w-md">
+        <button onclick="mostrarPantalla('menu')" class="mb-4 text-blue-600 font-bold">← Volver</button>
+        
+        <div class="bg-white rounded-lg shadow-md p-6 mb-4">
+            <h2 class="text-xl font-bold mb-4 text-gray-800">Buscar Paquete</h2>
+            
+            <label class="block text-gray-700 font-bold mb-2">ID del paquete:</label>
+            <input type="text" id="input-buscar" placeholder="Ej: 157" maxlength="3" class="w-full p-3 border border-gray-300 rounded-lg mb-4">
+
+            <button onclick="buscarPaquete()" class="w-full bg-purple-600 text-white py-3 px-6 rounded-lg font-bold hover:bg-purple-700">
+                🔍 Buscar
+            </button>
+        </div>
+
+        <div id="resultado-busqueda"></div>
+    </div>
+
+    <script>
+        // ========================================
+        // CONFIGURACIÓN DE FIREBASE
+        // ========================================
+        // ⚠️ IMPORTANTE: Reemplaza estos valores con tu configuración de Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyDuY9ZILDYm3bNUz-QOmJzLqiqEM0nXt5U",
+  authDomain: "qrapp-44928.firebaseapp.com",
+  databaseURL: "https://qrapp-44928-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "qrapp-44928",
+  storageBucket: "qrapp-44928.firebasestorage.app",
+  messagingSenderId: "514907752423",
+  appId: "1:514907752423:web:2d59e69accf5bdd8b01f42",
+  measurementId: "G-F372EM60EV"
+        };
+
+        // Inicializar Firebase
+        let db;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.database();
+            console.log('Firebase inicializado correctamente');
+        } catch (error) {
+            console.error('Error al inicializar Firebase:', error);
+            alert('Error de configuración. Por favor, configura Firebase correctamente.');
+        }
+
+        // ========================================
+        // VARIABLES GLOBALES
+        // ========================================
+        let html5QrcodeScanner = null;
+        let idEscaneado = null;
+        let filtroActual = 'todos';
+
+        // ========================================
+        // NAVEGACIÓN ENTRE PANTALLAS
+        // ========================================
+        function mostrarPantalla(pantalla) {
+            document.querySelectorAll('[id^="pantalla-"]').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`pantalla-${pantalla}`).classList.remove('hidden');
+            
+            if (pantalla === 'menu') {
+                actualizarContadorPendientes();
+            } else if (pantalla === 'pendientes') {
+                cargarPaquetesPendientes();
+            } else if (pantalla === 'historial') {
+                cargarHistorial();
+            }
+        }
+
+        // ========================================
+        // ESCANEO DE QR
+        // ========================================
+        function iniciarEscaneo() {
+            document.getElementById('btn-iniciar-camara').classList.add('hidden');
+            document.getElementById('btn-detener-camara').classList.remove('hidden');
+            
+            html5QrcodeScanner = new Html5Qrcode("reader");
+            
+            html5QrcodeScanner.start(
+                { facingMode: "environment" },
+                {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 }
+                },
+                (decodedText) => {
+                    idEscaneado = decodedText.padStart(3, '0');
+                    detenerEscaneo();
+                    abrirWhatsApp(idEscaneado);
+                }
+            ).catch(err => {
+                alert('Error al acceder a la cámara: ' + err);
+                document.getElementById('btn-iniciar-camara').classList.remove('hidden');
+                document.getElementById('btn-detener-camara').classList.add('hidden');
+            });
+        }
+
+        function detenerEscaneo() {
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.stop().then(() => {
+                    html5QrcodeScanner = null;
+                    document.getElementById('btn-iniciar-camara').classList.remove('hidden');
+                    document.getElementById('btn-detener-camara').classList.add('hidden');
+                }).catch(err => console.error(err));
+            }
+        }
+
+        function abrirWhatsApp(id) {
+            const mensaje = `Hola, tienes un paquete con el número ${id}`;
+            const urlWhatsApp = `whatsapp://send?text=${encodeURIComponent(mensaje)}`;
+            
+            window.location.href = urlWhatsApp;
+            
+            setTimeout(() => {
+                document.getElementById('id-confirmacion').textContent = id;
+                mostrarPantalla('confirmacion');
+            }, 500);
+        }
+
+        function cancelarConfirmacion() {
+            idEscaneado = null;
+            document.getElementById('input-contacto').value = '';
+            mostrarPantalla('menu');
+        }
+
+        // ========================================
+        // GUARDAR PAQUETE EN FIREBASE
+        // ========================================
+        function confirmarEnvio() {
+            if (!idEscaneado) return;
+            
+            const contacto = document.getElementById('input-contacto').value.trim() || 'Sin nombre';
+            const ahora = new Date();
+            
+            const paquete = {
+                id: idEscaneado,
+                contacto: contacto,
+                fechaNotificacion: ahora.toISOString(),
+                fechaRecogida: null,
+                estado: 'Pendiente'
+            };
+            
+            db.ref('paquetes/' + idEscaneado).set(paquete)
+                .then(() => {
+                    alert('✓ Paquete registrado correctamente');
+                    document.getElementById('input-contacto').value = '';
+                    idEscaneado = null;
+                    mostrarPantalla('menu');
+                })
+                .catch(error => {
+                    alert('Error al guardar: ' + error.message);
+                });
+        }
+
+        // ========================================
+        // CARGAR PAQUETES PENDIENTES
+        // ========================================
+        function cargarPaquetesPendientes() {
+            db.ref('paquetes').orderByChild('estado').equalTo('Pendiente').once('value')
+                .then(snapshot => {
+                    const lista = document.getElementById('lista-pendientes');
+                    lista.innerHTML = '';
+                    
+                    if (!snapshot.exists()) {
+                        lista.innerHTML = '<div class="bg-white rounded-lg shadow-md p-6 text-center text-gray-500">No hay paquetes pendientes</div>';
+                        return;
+                    }
+                    
+                    snapshot.forEach(childSnapshot => {
+                        const paquete = childSnapshot.val();
+                        lista.innerHTML += crearTarjetaPaquete(paquete, true);
+                    });
+                });
+        }
+
+        // ========================================
+        // MARCAR COMO RECOGIDO
+        // ========================================
+        function marcarRecogido(id) {
+            if (!confirm(`¿Marcar el paquete ${id} como recogido?`)) return;
+            
+            const ahora = new Date();
+            
+            db.ref('paquetes/' + id).update({
+                estado: 'Recogido',
+                fechaRecogida: ahora.toISOString()
+            })
+                .then(() => {
+                    alert('✓ Paquete marcado como recogido');
+                    cargarPaquetesPendientes();
+                    actualizarContadorPendientes();
+                })
+                .catch(error => {
+                    alert('Error: ' + error.message);
+                });
+        }
+
+        // ========================================
+        // HISTORIAL COMPLETO
+        // ========================================
+        function cargarHistorial() {
+            db.ref('paquetes').once('value')
+                .then(snapshot => {
+                    const lista = document.getElementById('lista-historial');
+                    lista.innerHTML = '';
+                    
+                    if (!snapshot.exists()) {
+                        lista.innerHTML = '<div class="bg-white rounded-lg shadow-md p-6 text-center text-gray-500">No hay paquetes registrados</div>';
+                        return;
+                    }
+                    
+                    const paquetes = [];
+                    snapshot.forEach(childSnapshot => {
+                        paquetes.push(childSnapshot.val());
+                    });
+                    
+                    paquetes.sort((a, b) => new Date(b.fechaNotificacion) - new Date(a.fechaNotificacion));
+                    
+                    paquetes.forEach(paquete => {
+                        if (filtroActual === 'todos' || 
+                            (filtroActual === 'pendientes' && paquete.estado === 'Pendiente') ||
+                            (filtroActual === 'recogidos' && paquete.estado === 'Recogido')) {
+                            lista.innerHTML += crearTarjetaPaquete(paquete, paquete.estado === 'Pendiente');
+                        }
+                    });
+                });
+        }
+
+        function filtrarHistorial(filtro) {
+            filtroActual = filtro;
+            
+            document.querySelectorAll('[id^="btn-"]').forEach(btn => {
+                btn.classList.remove('bg-blue-600', 'text-white');
+                btn.classList.add('bg-gray-200', 'text-gray-800');
+            });
+            
+            const btnId = filtro === 'todos' ? 'btn-todos' : 
+                         filtro === 'pendientes' ? 'btn-pendientes-filtro' : 'btn-recogidos-filtro';
+            document.getElementById(btnId).classList.remove('bg-gray-200', 'text-gray-800');
+            document.getElementById(btnId).classList.add('bg-blue-600', 'text-white');
+            
+            cargarHistorial();
+        }
+
+        // ========================================
+        // BUSCAR PAQUETE
+        // ========================================
+        function buscarPaquete() {
+            const id = document.getElementById('input-buscar').value.trim().padStart(3, '0');
+            
+            if (!id) {
+                alert('Por favor, ingresa un ID');
+                return;
+            }
+            
+            db.ref('paquetes/' + id).once('value')
+                .then(snapshot => {
+                    const resultado = document.getElementById('resultado-busqueda');
+                    
+                    if (!snapshot.exists()) {
+                        resultado.innerHTML = '<div class="bg-red-100 border-l-4 border-red-500 p-4 rounded"><p class="text-red-700 font-bold">No se encontró ningún paquete con el ID: ' + id + '</p></div>';
+                        return;
+                    }
+                    
+                    const paquete = snapshot.val();
+                    resultado.innerHTML = crearTarjetaPaquete(paquete, paquete.estado === 'Pendiente');
+                });
+        }
+
+        // ========================================
+        // CREAR TARJETA DE PAQUETE
+        // ========================================
+        function crearTarjetaPaquete(paquete, mostrarBoton) {
+            const fecha = new Date(paquete.fechaNotificacion);
+            const fechaFormateada = fecha.toLocaleDateString('es-ES') + ' ' + fecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+            
+            let fechaRecogida = '';
+            if (paquete.fechaRecogida) {
+                const fechaRec = new Date(paquete.fechaRecogida);
+                fechaRecogida = `<p class="text-sm text-gray-600">✓ Recogido: ${fechaRec.toLocaleDateString('es-ES')} ${fechaRec.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</p>`;
+            }
+            
+            const estadoColor = paquete.estado === 'Pendiente' ? 'bg-orange-100 border-orange-500 text-orange-700' : 'bg-green-100 border-green-500 text-green-700';
+            const boton = mostrarBoton ? `<button onclick="marcarRecogido('${paquete.id}')" class="w-full bg-green-600 text-white py-2 px-4 rounded font-bold hover:bg-green-700 mt-3">✓ Marcar como Recogido</button>` : '';
+            
+            return `
+                <div class="bg-white rounded-lg shadow-md p-4 mb-3">
+                    <div class="flex justify-between items-start mb-2">
+                        <h3 class="text-2xl font-bold text-gray-800">📦 ${paquete.id}</h3>
+                        <span class="${estadoColor} px-3 py-1 rounded-full text-xs font-bold border-l-4">${paquete.estado}</span>
+                    </div>
+                    <p class="text-gray-700 font-semibold mb-1">👤 ${paquete.contacto}</p>
+                    <p class="text-sm text-gray-600">📅 Notificado: ${fechaFormateada}</p>
+                    ${fechaRecogida}
+                    ${boton}
+                </div>
+            `;
+        }
+
+        // ========================================
+        // ACTUALIZAR CONTADOR DE PENDIENTES
+        // ========================================
+        function actualizarContadorPendientes() {
+            db.ref('paquetes').orderByChild('estado').equalTo('Pendiente').once('value')
+                .then(snapshot => {
+                    const count = snapshot.numChildren();
+                    document.getElementById('num-pendientes').textContent = count;
+                });
+        }
